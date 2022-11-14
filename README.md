@@ -12,5 +12,5 @@ The matching aerial overhead images are made available free of charge by the Dut
 
 ### Data processing
 We provide scripts to pre-process the data that users have downloaded into a dataset that can be used for deep learning tasks. Below is a graphical overview of the contents of each patch.
-![Figure showing the contents of each datapoint after processing](https://github.com/Bixbeat/LBMOverheadMonitor/blob/main/figures/lbm_3_gt.png?raw=true | width=300)
 
+<img src="https://github.com/Bixbeat/LBMOverheadMonitor/blob/main/figures/lbm_3_gt.png" height="300"> 
