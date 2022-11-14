@@ -12,4 +12,5 @@ The liveability reference data is derived from the Leefbaarometer (lit: liveabil
 The matching aerial overhead images are made available free of charge by the Dutch government. From 2014 onward there is a yearly single aerial image at 0.25m resolution with RGB and near-infrared bands.
 
 ### Data processing
-We provide scripts to pre-process the data that users have downloaded into a dataset that can be used for deep learning tasks.
+We provide scripts to pre-process the data that users have downloaded into a dataset that can be used for deep learning tasks. Below is a graphical overview of the contents of each patch.
+![alt text](https://github.com/Bixbeat/LBMOverheadMonitor/blob/main/figures/lbm_3_gt.png?raw=true)
