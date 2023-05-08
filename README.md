@@ -29,7 +29,7 @@ The provided scripts query the Web Map Tile Service (WMTS) and download images f
 ### Data pre-processing
 We provide scripts to pre-process the data that users have downloaded into a dataset that can be used for deep learning tasks. The data is split up into patches of 600 by 600 meters. While the grid cells are released at 100 x 100 meters, they are scaled to 700 by 700 meters in order to match the Leefbaarometer input variables which are over _300 meters walking distance_. As such, there is 300 meters overlap with neighbouring grid cells in every direction. Below is a graphical overview of the contents of each patch.
 
-<img src="https://github.com/Bixbeat/LBMOverheadMonitor/blob/main/figures/lbm_3_gt.png" height="300"> 
+<img src="https://github.com/Bixbeat/LBMOverheadMonitor/blob/main/lbm_3_gt.png" height="300"> 
 
 ### Patching
 We also provide a script which generates a raster patch overlapping with each LBM grid cell. The resulting patches have 700m total patch size by default with 300m effective side-overlap. The number of pixels depends on the resolution of the raster tile. This is done to match the most common feature distance inclusion (e.g. "number of houses" within 300m). It can go up to 500-1'000 meters for some indicator variables used by the LBM workflow though, so some information will not be seen in the image.
