@@ -16,8 +16,8 @@ filename_prefix = 'utrecht_2020_60cm'
 out_dir = "tiles/"
 # Input CRS is RD New, 28992
 subset_bbox = (139267, 456844, 139267+4000, 456844+4000) # test coords
-DOWNLOAD_LABELS: True
-DOWNLOAD_IMAGES: True
+DOWNLOAD_LABELS = True
+DOWNLOAD_IMAGES = True
   
 # Zoom level - this determines the WMTS resolution to query from the server. 
 if out_pixel_size >= 0.6: 
