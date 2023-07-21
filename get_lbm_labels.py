@@ -11,16 +11,13 @@ import warnings
 warnings.filterwarnings("ignore")  # Silencing repeated Pandas warnings
 
 ### SETTINGS ###
-# NOTE: The WFS has data from 2016 onwards. For the 2012-2015 data, please check the ArcGIS Online link in the repository
-# Alternatively, contact the authors for assistance
 OUT_PIXEL_SIZE = 1  # in meters
 BASE_DIR = "data/tiles/"
-# Input CRS is RD New, 28992
-# subset_bbox = (139267, 456844, 139267+4000, 456844+4000) # test coords
-DOWNLOAD_LABELS = False
+
+DOWNLOAD_LABELS = False  # Provided label file contains labels of images already
 ADD_DOMAIN_SCORES = False
 DOWNLOAD_IMAGES = True
-OFFSET = 1200  # Pad the raster with extra pixels to allow side-overlap of patches at the edges
+OFFSET = 1200  # Pad the raster with extra pixels to allow side-overlap of raster tiles at the edges
 
 # Zoom level - this determines the WMTS resolution to query from the server.
 if OUT_PIXEL_SIZE >= 0.6:
@@ -28,8 +25,8 @@ if OUT_PIXEL_SIZE >= 0.6:
 else:
     ZOOM_LEVEL = 19
 
-lbm_gdf = gpd.read_file("data/source/grid_geosplit_not_rescaled.geojson")
-grouped_cities = lbm_gdf.groupby("region_name")
+lbm_gdf = gpd.read_file("data/labels_with_splits.geojson")
+grouped_cities = lbm_gdf.groupby("set")
 
 labels_df = gpd.GeoDataFrame()
 years = [8, *list(range(12, 21))]
@@ -39,7 +36,6 @@ for year in years:
         city = city.split("_")[0]
         print(f"Processing {year} {city}")
         bbox = cells.total_bounds.tolist()
-        # bbox = [bbox[0], bbox[1], bbox[0], bbox[1]]
 
         # ### DOWNLOAD FROM WFS ###
         if DOWNLOAD_LABELS:
@@ -119,6 +115,7 @@ for year in years:
                 Path(out_dir).mkdir(exist_ok=True, parents=True)
 
                 # Set-up WMTS service
+                ##### Each year has different WMTS settings #####
                 tile_matrix_set = "default028mm"
                 set_zoom_lvl = "12"
                 if year == 8:
@@ -128,6 +125,7 @@ for year in years:
                         "https://tiles.arcgis.com/tiles/nSZVuSZjHpEZZbRo/arcgis/rest/services/Luchtfoto_2008/MapServer/WMTS?"
                     )
                     hotfix_name_error(wmts)
+
                 elif year <= 15:
                     if year <= 13:
                         wmts_layer = f"LuchtfotoNL50cm_20{year}"
