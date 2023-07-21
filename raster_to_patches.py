@@ -3,7 +3,7 @@ from pathlib import Path
 
 import geopandas as gpd
 from osgeo import gdal
-from utils.geo_funcs import LBMRasterSegmenter
+from utils.patchifying import LBMRasterSegmenter
 
 years = [8, *list(range(12, 21))]
 years = [y for y in years if not y in [20]]
