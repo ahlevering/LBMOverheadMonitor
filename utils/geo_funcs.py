@@ -10,6 +10,7 @@ import rasterio
 import rasterio.windows
 import subprocess
 from rasterio.transform import Affine
+from PIL import Image
 
 from osgeo import gdal
 from pathlib import Path
@@ -27,6 +28,8 @@ def unclip_polygon(row):
 def get_scores(url, year, bbox, add_domain_scores):
     str_bbox = ",".join(str(coord) for coord in bbox)
 
+    if year < 10:
+        year = "0" + str(year)
     layer_name = f"lbm3:clippedgridscore{year}"
     # layer_name = f"lbm3:clippedgridscore14_fys"
     params = dict(
@@ -120,7 +123,7 @@ def calculate_geotransform(tile_matrix, min_col, min_row):
     return geotransform
 
 
-def create_output_raster(out_dir, total_cols, total_rows, geotransform):
+def create_output_raster(out_dir, total_cols, total_rows, geotransform, epsg="EPSG:3857"):
     output_raster = rasterio.open(
         f"{out_dir}unprojected.tiff",
         "w",
@@ -129,7 +132,7 @@ def create_output_raster(out_dir, total_cols, total_rows, geotransform):
         height=total_rows,
         count=3,  # for RGB
         dtype=np.uint8,
-        crs="EPSG:3857",
+        crs=epsg,
         transform=geotransform,
     )
     return output_raster
@@ -205,7 +208,9 @@ class LBMRasterSegmenter:
         self.raster_tile = raster_tile
         self.grid_cells = lbm_grid_cells
 
-    def subset_raster_by_lbm_polys(self, xsize, ysize, out_patches_dir, set_name=None, overwrite_patches=False):
+    def subset_raster_by_lbm_polys(
+        self, xsize, ysize, out_patches_dir, set_name=None, overwrite_patches=False, compress=True
+    ):
         driver = gdal.GetDriverByName("GTiff")
         Path(out_patches_dir).mkdir(parents=True, exist_ok=True)
 
@@ -228,21 +233,26 @@ class LBMRasterSegmenter:
             if in_x_range and in_y_range:
                 # Create output raster
                 grid_id = cell[1]["id"]
-                out_filepath = out_patches_dir + str(grid_id) + ".tiff"
-                if overwrite_patches or not Path(out_filepath).exists:
+                filepath_tiff = out_patches_dir + str(grid_id) + ".tiff"
+                filepath_webp = out_patches_dir + str(grid_id) + ".webp"
+
+                if overwrite_patches or (not Path(filepath_tiff).exists() and not Path(filepath_webp).exists()):
                     out_raster = driver.Create(
-                        out_filepath,
+                        filepath_tiff,
                         xsize=n_pixels_in_xsize,
                         ysize=n_pixels_in_ysize,
                         bands=3,
-                        options=["INTERLEAVE=PIXEL", "COMPRESS=LZW"],
+                        options=["INTERLEAVE=PIXEL"],  # , "COMPRESS=LZW"],
                     )
 
                     # Read & write data by offset data relative to top-left
                     x_offset = int(abs(round((poly_x_range[0] - ras_x_range[0]) * (1 / xres))))
                     y_offset = int(abs(round((poly_y_range[1] - ras_y_range[1]) * (1 / yres))))
                     raster_data = self.raster_tile.ReadAsArray(
-                        x_offset, y_offset, n_pixels_in_xsize, n_pixels_in_ysize
+                        x_offset - (n_pixels_in_xsize / 2) + 50,
+                        y_offset - (n_pixels_in_ysize / 2) + 50,
+                        n_pixels_in_xsize,
+                        n_pixels_in_ysize,
                     )[:3, :, :]
                     out_raster.WriteRaster(
                         0,
@@ -256,7 +266,10 @@ class LBMRasterSegmenter:
                     )
 
                     # Set geotransform
-                    out_ul = [poly_x_range[0], poly_y_range[1]]
+                    out_ul = [
+                        poly_x_range[0] - (n_pixels_in_xsize / 2) + 50,  # - 50,
+                        poly_y_range[1] + (n_pixels_in_ysize / 2) - 50,  # + 50,
+                    ]
                     out_raster.SetGeoTransform([out_ul[0], xres, xskew, out_ul[1], yskew, yres])
 
                     # Set projection
@@ -264,6 +277,16 @@ class LBMRasterSegmenter:
 
                     out_raster.FlushCache()
                     out_raster = None
+
+                    if compress:
+                        img = Image.open(filepath_tiff)
+                        img.save(filepath_webp, "WEBP")
+                        remove_cmd_completed = subprocess.run(
+                            f"rm {filepath_tiff}",
+                            shell=True,
+                            capture_output=True,
+                            timeout=60,
+                        )
 
     def _get_offset_range_from_centroid(self, poly):
         centroid = poly.centroid.xy
