@@ -3,6 +3,7 @@ from time import sleep
 from tqdm import tqdm
 from pathlib import Path
 from time import sleep
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pyproj import Transformer
 import numpy as np
@@ -15,6 +16,7 @@ import rasterio.windows
 import subprocess
 from rasterio.transform import Affine
 
+import logging
 
 class WMTSManager:
     def __init__(self, year, bbox):
@@ -65,13 +67,13 @@ class WMTSManager:
                 )
         else:
             wmts_layer = f"20{self.year}_ortho25"
-            tile_matrix_set = "EPSG:3857"
-            epsg = "EPSG:3857"
+            tile_matrix_set = "EPSG:28992" #"EPSG:3857"
+            epsg = "EPSG:28992" # "EPSG:3857"
             wmts = WebMapTileService("https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0")
 
             # Reproject to web mercator, the only CRS that works with the downloader
-            self.bbox_to_web_mercator()
-            set_zoom_lvl = "17"
+            # self.bbox_to_web_mercator()
+            set_zoom_lvl = "15"
 
         # Fix weird WMTS library bug
         self.hotfix_name_error(wmts)
@@ -117,6 +119,9 @@ class WMTSRasterDownloader:
         self.city = city
         self.offset = offset
         self.out_pixel_size = out_pixel_size
+
+        logging.basicConfig(filename='downloading.log', level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
 
         # Determined during downloading
         self.set_zoom_level = None
@@ -177,6 +182,32 @@ class WMTSRasterDownloader:
         )
         return output_raster
 
+    def download_tile(self, row, col, output_raster, min_row, min_col):
+        tries = 0
+        downloaded = False
+        while tries <= 10 and not downloaded:
+            try:
+                tile = self.wmts_manager.get_tile(row, col)
+                # Read the tile data and store it in the output raster
+                img = rasterio.io.MemoryFile(tile).open().read()
+                output_raster.write(
+                    img,
+                    window=rasterio.windows.Window(
+                        col * 256 - min_col * 256,
+                        row * 256 - min_row * 256,
+                        256,
+                        256,
+                    ),
+                )
+                downloaded = True
+                sleep(0.025)
+            except Exception as e:
+                self.logger.warning(str(e))
+                print(e)
+                tries += 1
+                sleep(3 ** tries)
+        return {"Row": row, "Col": col}
+
     def write_tiles_to_output_raster(
         self,
         output_raster,
@@ -185,44 +216,16 @@ class WMTSRasterDownloader:
         min_col,
         max_col,
     ):
-        outer_loop = tqdm(range(min_row, max_row), desc="Rows")
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = []
+            for row in range(min_row, max_row):
+                for col in range(min_col, max_col):
+                    futures.append(executor.submit(self.download_tile, row, col, output_raster, min_row, min_col))
+            for future in tqdm(as_completed(futures), total=len(futures), desc=f"{self.city} {self.year}"):
+                result = future.result()  # blocks until the future is done
+                # print(f"Downloaded tile at row {result['Row']}, col {result['Col']}")
 
-        for row in outer_loop:
-            inner_loop = tqdm(
-                range(min_col, max_col),
-                leave=False,
-                desc="Cols",
-                position=1,
-                bar_format="{l_bar}{n_fmt}/{total_fmt}",
-            )
-            for col in inner_loop:
-                tries = 0
-                downloaded = False
-                while tries <= 10 and not downloaded:
-                    try:
-                        tile = self.wmts_manager.get_tile(row, col)
-                        # Read the tile data and store it in the output raster
-                        img = rasterio.io.MemoryFile(tile).open().read()
-                        output_raster.write(
-                            img,
-                            window=rasterio.windows.Window(
-                                col * 256 - min_col * 256,
-                                row * 256 - min_row * 256,
-                                256,
-                                256,
-                            ),
-                        )
-                        downloaded = True
-                        sleep(0.05)
-                    except Exception as e:
-                        print(e)
-                        tries += 1
-                        sleep(10 * tries)
-
-                inner_loop.set_postfix({"Col": col})
-            outer_loop.set_postfix({"Row": row})
-
-    def postprocess_raster(self):
+    def postprocess_raster(self, filename):
         # Define the input and output file paths
         input_file = f"{self.out_dir}unprojected.tiff"
 
@@ -233,7 +236,18 @@ class WMTSRasterDownloader:
 
         # Reproject the input raster to the target CRS and save to the output file
         if self.year > 15:
-            gdal.Warp(f"{self.out_dir}projected.tiff", input_ras, dstSRS=target_crs)
+            warp_options = gdal.WarpOptions(format='GTiff', 
+                                            # dstSRS=target_crs,
+                                            creationOptions=['COMPRESS=LZW'], 
+                                            xRes=self.out_pixel_size, 
+                                            yRes=self.out_pixel_size)
+
+            gdal.Warp(#f"{self.out_dir}{self.city}_{self.year}.tiff", 
+                    filename,
+                    input_ras,
+                    options=warp_options)
+
+            # OWSLIB IS THE PROBLEM, FIGURE IT OUT FROM THERE
             remove_cmd_completed = subprocess.run(
                 f"rm {self.out_dir}unprojected.tiff",
                 shell=True,
@@ -242,26 +256,26 @@ class WMTSRasterDownloader:
             )
         else:
             remove_cmd_completed = subprocess.run(
-                f"mv {self.out_dir}unprojected.tiff {self.out_dir}projected.tiff",
+                f"mv {self.out_dir}unprojected.tiff",
                 shell=True,
                 capture_output=True,
                 timeout=60,
             )
 
         # Resize
-        reproj_cmd = f"gdalwarp -tr {self.out_pixel_size} {self.out_pixel_size} {self.out_dir}projected.tiff {self.out_dir}{self.city}_{self.year}.tiff"
-        reproj_cmd_completed = subprocess.run(reproj_cmd, shell=True, capture_output=True, timeout=180)
+        # warp_cmd = f"gdalwarp -co compress=LZW -tr {self.out_pixel_size} {self.out_pixel_size} {self.out_dir}projected.tiff {self.out_dir}{self.city}_{self.year}.tiff"
+        # warp_cmd_completed = subprocess.run(warp_cmd, shell=True, capture_output=True, timeout=180)
 
         # Close the dataset
         input_ras = None
         remove_cmd_completed = subprocess.run(
-            f"rm {self.out_dir}projected.tiff",
+            f"rm {self.out_dir}projected.tiff", # rm {self.out_dir}warped.tiff ",
             shell=True,
             capture_output=True,
             timeout=60,
         )
 
-    def download_raster_tile(self):
+    def download_raster_tile(self, filename):
         min_col, max_col, min_row, max_row = self.filter_row_cols_by_bbox()
 
         # Calculate parameters
@@ -289,4 +303,4 @@ class WMTSRasterDownloader:
             max_col,
         )
         unproj_raster.close()
-        self.postprocess_raster()
+        self.postprocess_raster(filename)

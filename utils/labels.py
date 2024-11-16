@@ -1,5 +1,6 @@
 from requests import Request
 import geopandas as gpd
+import pandas as pd
 from shapely.geometry import Point
 
 
@@ -14,61 +15,58 @@ def unclip_polygon(row):
 def get_scores(url, year, bbox, add_domain_scores):
     str_bbox = ",".join(str(coord) for coord in bbox)
 
-    if year < 10:
-        year = "0" + str(year)
-    layer_name = f"lbm3:clippedgridscore{year}"
-    # layer_name = f"lbm3:clippedgridscore14_fys"
-    params = dict(
-        service="WFS",
-        version="2.0.0",
-        request="GetFeature",
-        typeName=layer_name,
-        outputFormat="json",
-        bbox=str_bbox,
-        srsName="EPSG:28992",
-        startIndex=0,
-    )
-    wfs_request_url = Request("GET", url, params=params).prepare().url
-    # wfs_request_url.replace("%2C", ",")
-    scores_df = gpd.read_file(wfs_request_url)
-
-    # For some reason these are now stored individually on the web server?
-    if year in [14, 18, 20] and add_domain_scores:
-        for score in ["fys", "onv", "soc", "vrz", "won"]:
-            layer_name = f"lbm3:clippedgridscore{year}_{score}"
-            params = dict(
-                service="WFS",
-                version="2.0.0",
-                request="GetFeature",
-                typeName=layer_name,
-                outputFormat="json",
-                bbox=str_bbox,
-                srsName="EPSG:28992",
-                startIndex=0,
-            )
-            wfs_request_url = Request("GET", url, params=params).prepare().url
-            subscore_df = gpd.read_file(wfs_request_url)
-            scores_df["score"] = subscore_df["afw"]
+    # Check if special subscore endpoint can be used
+    if year in [14, 18, 20] and add_domain_scores:        
+        layer_name = f"lbm3:clippedgridscore{year}_won" # Any subscore returns entire set now, apparently
+        params = dict(
+            service="WFS",
+            version="2.0.0",
+            request="GetFeature",
+            typeName=layer_name,
+            outputFormat="json",
+            bbox=str_bbox,
+            srsName="EPSG:28992",
+            startIndex=0,
+        )
+        wfs_request_url = Request("GET", url, params=params).prepare().url
+        scores_df = gpd.read_file(wfs_request_url)
+    else:
+        if year < 10:
+            year = "0" + str(year)
+        layer_name = f"lbm3:clippedgridscore{year}"
+        params = dict(
+            service="WFS",
+            version="2.0.0",
+            request="GetFeature",
+            typeName=layer_name,
+            outputFormat="json",
+            bbox=str_bbox,
+            srsName="EPSG:28992",
+            startIndex=0,
+        )
+        wfs_request_url = Request("GET", url, params=params).prepare().url
+        scores_df = gpd.read_file(wfs_request_url)        
+        
     return scores_df
-
 
 ### LABEL FUNCTIONS ###
 def download_labels(wfs_url, year, bbox, city, ADD_DOMAIN_SCORES):
     year_labels_df = get_scores(wfs_url, year, bbox, ADD_DOMAIN_SCORES)
-    year_labels_df["geometry"] = year_labels_df.apply(unclip_polygon, axis=1)
-    year_labels_df["set"] = city
-    year_labels_df.rename(
-        columns={
-            "afw": f"liveability_{year}",
-            "fys": f"phys_env_{year}",
-            "onv": f"safety_{year}",
-            "vrz": f"amenities_{year}",
-            "soc": f"cohesion_{year}",
-            "won": f"buildings_{year}",
-        },
-        errors="ignore",
-        inplace=True,
-    )
+    if len(year_labels_df) > 0:
+        year_labels_df["geometry"] = year_labels_df.apply(unclip_polygon, axis=1) # Turn polys back to square
+        year_labels_df["set"] = city
+        year_labels_df.rename(
+            columns={
+                "afw": f"liveability_{year}",
+                "fys": f"phys_env_{year}",
+                "onv": f"safety_{year}",
+                "vrz": f"amenities_{year}",
+                "soc": f"soc_cohesion_{year}",
+                "won": f"building_qual_{year}",
+            },
+            errors="ignore",
+            inplace=True,
+        )
     return year_labels_df
 
 
@@ -76,7 +74,7 @@ def update_labels_df(labels_df, year_labels_df, to_join, year, years):
     if labels_df.empty:
         labels_df = year_labels_df
     elif year == years[0]:
-        labels_df = labels_df.append(year_labels_df, ignore_index=True)
+        labels_df = pd.concat([labels_df, year_labels_df], ignore_index=True)
     else:
         year_labels_df["geometry"] = year_labels_df["geometry"].centroid
         joined_df = gpd.sjoin(labels_df, year_labels_df[to_join], how="left", op="contains")
