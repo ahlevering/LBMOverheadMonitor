@@ -19,7 +19,7 @@ from rasterio.transform import Affine
 import logging
 
 class WMTSManager:
-    def __init__(self, year, bbox):
+    def __init__(self, year, bbox, pixel_size):
         self.year = year
         self.bbox = bbox
 
@@ -31,14 +31,14 @@ class WMTSManager:
         self.tile_matrix = None
 
         ## Set above variables
-        self.get_wmts_params()
+        self.get_wmts_params(pixel_size)
 
     def hotfix_name_error(self, wmts):
         for i, op in enumerate(wmts.operations):
             if not hasattr(op, "name"):
                 wmts.operations[i].name = ""
 
-    def get_wmts_params(self):
+    def get_wmts_params(self, pixel_size):
         # Set-up WMTS service
         tile_matrix_set = "default028mm"
         set_zoom_lvl = "12"
@@ -71,9 +71,14 @@ class WMTSManager:
             epsg = "EPSG:28992" # "EPSG:3857"
             wmts = WebMapTileService("https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0")
 
-            # Reproject to web mercator, the only CRS that works with the downloader
-            # self.bbox_to_web_mercator()
-            set_zoom_lvl = "15"
+            if pixel_size >= 1:
+                set_zoom_lvl = "12" # 84cm per pixel
+            elif pixel_size >= 0.5:
+                set_zoom_lvl = "13" # 42cm per pixel
+            elif pixel_size >= 0.25:
+                set_zoom_lvl = "14" # 21cm per pixel
+            else:
+                set_zoom_lvl = "15" # Approx 10.5cm per pixel
 
         # Fix weird WMTS library bug
         self.hotfix_name_error(wmts)
@@ -130,7 +135,7 @@ class WMTSRasterDownloader:
         if not Path(f"{out_dir}{city}_{year}.tiff").exists():
             Path(out_dir).mkdir(exist_ok=True, parents=True)
 
-        self.wmts_manager = WMTSManager(year, bbox)
+        self.wmts_manager = WMTSManager(year, bbox, out_pixel_size)
 
     def filter_row_cols_by_bbox(self):
         bbox = self.wmts_manager.bbox
