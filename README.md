@@ -36,9 +36,5 @@ We also provide a script which generates a raster patch overlapping with each LB
 
 The output of the script is a GeoJSON file which contains all the labels for all grid cells in the reference dataset, as well as a folder containing the patches for the given bounding box.
 
-## Attribution
-When using these scripts, please cite the following paper:
-[coming soon]
-
 **DISCLAIMER**
 This project is not affiliated with or endorsed by the Dutch government or the Leefbaarometer. Any work and adaptations to the source data is performed done by the authors without consultation.
