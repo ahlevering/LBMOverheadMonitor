@@ -57,6 +57,8 @@ def download_labels(wfs_url, year, bbox, city, ADD_DOMAIN_SCORES):
         year_labels_df["set"] = city
         year_labels_df.rename(
             columns={
+                "gemeente":'municipality',
+                "name":'gridcode',
                 "afw": f"liveability_{year}",
                 "fys": f"phys_env_{year}",
                 "onv": f"safety_{year}",
